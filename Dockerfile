@@ -7,7 +7,7 @@
 # provider adapter is wired by env at runtime, so the same image
 # serves every provider.
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.4-alpine AS builder
 RUN apk add --no-cache git ca-certificates tzdata
 WORKDIR /build
 COPY go.mod go.sum ./
