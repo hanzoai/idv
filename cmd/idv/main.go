@@ -8,7 +8,7 @@
 // Provider selection via env:
 //
 //   IDV_PROVIDER=jumio|onfido|plaid|lexisnexis|intellicheck|
-//                idmerit|berbix||
+//                idmerit|berbix
 //   IDV_BASE_URL=…               (optional region override)
 //   IDV_API_TOKEN=…              (required for non-noop)
 //   IDV_WEBHOOK_SECRET=…         (for provider webhooks)
@@ -90,17 +90,9 @@ func loadProviderFromEnv() (provider.Provider, error) {
 		return provider.NewPlaid(provider.PlaidConfig{
 			BaseURL: baseURL, ClientID: apiToken,
 		}), nil
-	case provider.Provider:
-		return provider.New(provider.Config{
-			BaseURL: baseURL, APIToken: apiToken, WebhookSecret: webhookSecret,
-		}), nil
-	case provider.Provider:
-		return provider.New(provider.Config{
-			BaseURL: baseURL, APIToken: apiToken, WebhookSecret: webhookSecret,
-		}), nil
 	}
-	// Fall back to the dynamic registry ( +  self-
-	// register via init(); custom adapters can do the same).
+	// Fall back to the dynamic registry (providers self-register via
+	// init(); custom adapters can do the same).
 	return provider.GetProvider(name, map[string]string{
 		"base_url":       baseURL,
 		"api_token":      apiToken,
