@@ -10,8 +10,7 @@ package provider
 // callers can wire all providers with the same `cfg` shape).
 //
 // New providers either:
-//   1. Add an init() block in their own file (see .go /
-//      .go), or
+//   1. Add an init() block in their own file, or
 //   2. Add a case here.
 
 func init() {
