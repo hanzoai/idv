@@ -1,0 +1,7 @@
+# Compiled binary (build artifact — never commit)
+/idv
+
+# Go build/test output
+*.exe
+*.test
+*.out
