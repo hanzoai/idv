@@ -1,34 +1,12 @@
 name: Docker
-
+# The native deploy pipeline is .hanzo/workflows/deploy.yml (Hanzo Git push →
+# act_runner in-cluster → BuildKit builds Dockerfile → ghcr.io/hanzoai/idv:<sha>
+# → operator reconcile → hanzocd). GitHub is a mirror; this workflow no longer
+# builds or pushes the app image.
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
   workflow_dispatch:
-
-env:
-  IMAGE: ghcr.io/hanzoai/idv
-
-permissions:
-  contents: read
-  packages: write
-  id-token: write
-
 jobs:
-  test:
-    runs-on: hanzo-build-linux-amd64
+  notice:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.4'
-      - run: go build ./...
-      - run: go test ./...
-
-  docker:
-    needs: test
-    uses: hanzoai/.github/.github/workflows/docker-build.yml@main
-    with:
-      image: ghcr.io/hanzoai/idv
-      platforms: "linux/amd64"
-    secrets: inherit
+      - run: echo "native pipeline is .hanzo/workflows/deploy.yml; GitHub is a mirror"
