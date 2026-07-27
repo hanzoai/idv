@@ -1,6 +1,6 @@
 module github.com/hanzoai/idv
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/zap-proto/fiber/v3 v3.2.1
