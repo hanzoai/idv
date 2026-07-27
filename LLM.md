@@ -40,3 +40,31 @@ type Provider interface {
     ParseWebhook(body []byte, headers map[string]string) (*WebhookEvent, error)
 }
 ```
+
+## Service — `cmd/idv`
+
+Standalone binary, one HTTP surface IAM proxies to. Router is
+`github.com/zap-proto/zip` (fleet standard); `newApp(provider.Provider)`
+builds it, `Listen("http://"+addr)` serves it.
+
+| Method | Path | |
+|---|---|---|
+| any | `/healthz` | liveness |
+| any | `/v1/idv/status` | active provider discovery |
+| POST | `/v1/idv/sessions` | initiate a verification |
+| GET | `/v1/idv/sessions/{id}` | poll status (`{id}` may contain `/`) |
+| POST | `/v1/idv/webhook/{provider}` | webhook ingest |
+
+Wire format predates zip and is pinned byte-for-byte by
+`cmd/idv/router_test.go`: JSON responses are `application/json` with a
+trailing newline (`json.Encoder`), errors are `text/plain; charset=utf-8`
++ `nosniff` + message + newline (`http.Error`), including the router's own
+404/405. `writeJSON` and `plainError` are the only two places that decide
+this — do not answer a request any other way.
+
+`/v1/idv/sessions` and the `/v1/idv/sessions/` subtree are distinct routes
+(POST-only collection vs. GET-by-id). fiber's non-strict matching collapses
+them onto one wildcard, so `sessionByIDHandler` re-splits them on the raw
+path. Non-canonical paths the stdlib mux answered with a 307 or 404 now
+serve the canonical resource directly — pinned in
+`TestNonStrictRoutingAliases`.
