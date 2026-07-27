@@ -7,37 +7,45 @@
 //
 // Provider selection via env:
 //
-//   IDV_PROVIDER=jumio|onfido|plaid|lexisnexis|intellicheck|
-//                idmerit|berbix
-//   IDV_BASE_URL=…               (optional region override)
-//   IDV_API_TOKEN=…              (required for non-noop)
-//   IDV_WEBHOOK_SECRET=…         (for provider webhooks)
+//	IDV_PROVIDER=jumio|onfido|plaid|lexisnexis|intellicheck|
+//	             idmerit|berbix
+//	IDV_BASE_URL=…               (optional region override)
+//	IDV_API_TOKEN=…              (required for non-noop)
+//	IDV_WEBHOOK_SECRET=…         (for provider webhooks)
 //
 // Endpoints:
 //
-//   GET  /v1/idv/status                   active provider discovery
-//   POST /v1/idv/sessions                 initiate a verification
-//   GET  /v1/idv/sessions/{id}            poll verification status
-//   POST /v1/idv/webhook/{provider}       provider webhook ingest
-//   GET  /healthz                         liveness
+//	GET  /v1/idv/status                   active provider discovery
+//	POST /v1/idv/sessions                 initiate a verification
+//	GET  /v1/idv/sessions/{id}            poll verification status
+//	POST /v1/idv/webhook/{provider}       provider webhook ingest
+//	GET  /healthz                         liveness
 //
 // Run:
 //
-//   IDV_PROVIDER=onfido IDV_API_TOKEN=… idv -http :8081
+//	IDV_PROVIDER=onfido IDV_API_TOKEN=… idv -http :8081
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/zap-proto/fiber/v3"
+	"github.com/zap-proto/zip"
+
 	"github.com/hanzoai/idv/provider"
 )
+
+// sessionsSubtree is the prefix that separates the collection route
+// (POST /v1/idv/sessions) from the by-id subtree. See sessionByIDHandler.
+const sessionsSubtree = "/v1/idv/sessions/"
 
 func main() {
 	addr := flag.String("http", ":8081", "listen address")
@@ -53,17 +61,30 @@ func main() {
 		log.Printf("idv: disabled (IDV_PROVIDER unset)")
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-	mux.HandleFunc("/v1/idv/status", statusHandler(prov))
-	mux.HandleFunc("/v1/idv/sessions", sessionsHandler(prov))
-	mux.HandleFunc("/v1/idv/sessions/", sessionByIDHandler(prov))
-	mux.HandleFunc("/v1/idv/webhook/", webhookHandler(prov))
-
 	log.Printf("idv: listening on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	log.Fatal(newApp(prov).Listen("http://" + *addr))
+}
+
+// newApp builds the zip router. Every path, method, status code and
+// response body is the one the net/http mux served before it.
+func newApp(prov provider.Provider) *zip.App {
+	app := zip.New(zip.Config{
+		AppName:               "idv",
+		DisableStartupMessage: true,
+		ErrorHandler:          plainError,
+	})
+
+	// All (not Get): the stdlib mux served these on any method.
+	app.All("/healthz", func(c *zip.Ctx) error {
+		return writeJSON(c, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	v1 := app.Group("/v1/idv")
+	v1.All("/status", statusHandler(prov))
+	v1.Post("/sessions", sessionsHandler(prov))
+	v1.Get("/sessions/*", sessionByIDHandler(prov))
+	v1.Post("/webhook/*", webhookHandler(prov))
+	return app
 }
 
 func loadProviderFromEnv() (provider.Provider, error) {
@@ -104,17 +125,16 @@ func loadProviderFromEnv() (provider.Provider, error) {
 // Handlers
 // --------------------------------------------------------------------------
 
-func statusHandler(prov provider.Provider) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func statusHandler(prov provider.Provider) zip.Handler {
+	return func(c *zip.Ctx) error {
 		if prov == nil {
-			writeJSON(w, http.StatusOK, map[string]any{
+			return writeJSON(c, http.StatusOK, map[string]any{
 				"enabled":  false,
 				"provider": "",
 				"label":    "",
 			})
-			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		return writeJSON(c, http.StatusOK, map[string]any{
 			"enabled":  true,
 			"provider": prov.Name(),
 			"label":    prov.Name(),
@@ -122,90 +142,114 @@ func statusHandler(prov provider.Provider) http.HandlerFunc {
 	}
 }
 
-func sessionsHandler(prov provider.Provider) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+func sessionsHandler(prov provider.Provider) zip.Handler {
+	return func(c *zip.Ctx) error {
 		if prov == nil {
-			http.Error(w, "IDV disabled", http.StatusServiceUnavailable)
-			return
+			return errDisabled
 		}
 		var req provider.VerificationRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+		// Decoder, not Unmarshal: it yields the same error text the
+		// stdlib handler returned for a truncated body.
+		if err := json.NewDecoder(bytes.NewReader(c.Body())).Decode(&req); err != nil {
+			return httpErr(http.StatusBadRequest, err.Error())
 		}
-		resp, err := prov.InitiateVerification(r.Context(), &req)
+		resp, err := prov.InitiateVerification(c.Context(), &req)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
+			return httpErr(http.StatusBadGateway, err.Error())
 		}
-		writeJSON(w, http.StatusOK, resp)
+		return writeJSON(c, http.StatusOK, resp)
 	}
 }
 
-func sessionByIDHandler(prov provider.Provider) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
+func sessionByIDHandler(prov provider.Provider) zip.Handler {
+	return func(c *zip.Ctx) error {
+		// The stdlib mux drew a hard line between the collection route
+		// "/v1/idv/sessions" (POST-only) and the "/v1/idv/sessions/"
+		// subtree. fiber's non-strict matching collapses both onto this
+		// one wildcard route, so the raw path redraws the line: an exact
+		// /v1/idv/sessions belongs to the sibling route, which does not
+		// answer GET.
+		id, under := strings.CutPrefix(c.Path(), sessionsSubtree)
+		if !under {
+			return errMethodNotAllowed
 		}
 		if prov == nil {
-			http.Error(w, "IDV disabled", http.StatusServiceUnavailable)
-			return
+			return errDisabled
 		}
-		id := strings.TrimPrefix(r.URL.Path, "/v1/idv/sessions/")
 		if id == "" {
-			http.Error(w, "session id required", http.StatusBadRequest)
-			return
+			return errSessionIDRequired
 		}
-		result, err := prov.CheckStatus(r.Context(), id)
+		result, err := prov.CheckStatus(c.Context(), id)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
+			return httpErr(http.StatusBadGateway, err.Error())
 		}
-		writeJSON(w, http.StatusOK, result)
+		return writeJSON(c, http.StatusOK, result)
 	}
 }
 
-func webhookHandler(prov provider.Provider) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+func webhookHandler(prov provider.Provider) zip.Handler {
+	return func(c *zip.Ctx) error {
 		if prov == nil {
-			http.Error(w, "IDV disabled", http.StatusServiceUnavailable)
-			return
-		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+			return errDisabled
 		}
 		headers := map[string]string{}
-		for k := range r.Header {
-			headers[k] = r.Header.Get(k)
+		for k, v := range c.Fiber().GetReqHeaders() {
+			if len(v) > 0 {
+				headers[k] = v[0]
+			}
 		}
-		event, err := prov.ParseWebhook(body, headers)
+		event, err := prov.ParseWebhook(c.Body(), headers)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+			return httpErr(http.StatusBadRequest, err.Error())
 		}
-		writeJSON(w, http.StatusOK, event)
+		return writeJSON(c, http.StatusOK, event)
 	}
 }
 
 // --------------------------------------------------------------------------
-// Helpers
+// Wire format — the net/http contract this service shipped, in one place
 // --------------------------------------------------------------------------
 
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(body); err != nil {
+var (
+	errDisabled          = httpErr(http.StatusServiceUnavailable, "IDV disabled")
+	errMethodNotAllowed  = httpErr(http.StatusMethodNotAllowed, "method not allowed")
+	errSessionIDRequired = httpErr(http.StatusBadRequest, "session id required")
+)
+
+func httpErr(status int, msg string) *zip.HTTPError {
+	return &zip.HTTPError{Status: status, Msg: msg}
+}
+
+// writeJSON mirrors encoding/json's Encoder: "application/json" with no
+// charset, and a trailing newline after the value.
+func writeJSON(c *zip.Ctx, status int, body any) error {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
 		fmt.Fprintf(os.Stderr, "writeJSON: %v\n", err)
 	}
+	c.SetHeader(fiber.HeaderContentType, "application/json")
+	return c.Bytes(status, buf.Bytes())
+}
+
+// plainError renders every error exactly as net/http's http.Error did:
+// text/plain, nosniff, message + "\n" — including the router's own 404
+// and 405, whose stdlib wording this service inherited.
+func plainError(fc fiber.Ctx, err error) error {
+	status, msg := http.StatusInternalServerError, err.Error()
+	var he *zip.HTTPError
+	var fe *fiber.Error
+	switch {
+	case errors.Is(err, fiber.ErrNotFound):
+		status, msg = http.StatusNotFound, "404 page not found"
+	case errors.Is(err, fiber.ErrMethodNotAllowed):
+		status, msg = errMethodNotAllowed.Status, errMethodNotAllowed.Msg
+	case errors.As(err, &he):
+		status, msg = he.Status, he.Msg
+	case errors.As(err, &fe):
+		status, msg = fe.Code, fe.Message
+	}
+	fc.Set(fiber.HeaderContentType, "text/plain; charset=utf-8")
+	fc.Set("X-Content-Type-Options", "nosniff")
+	fc.Status(status)
+	return fc.SendString(msg + "\n")
 }
