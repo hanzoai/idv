@@ -158,65 +158,17 @@ func (p *Plaid) CheckStatus(ctx context.Context, verificationID string) (*Verifi
 	}, nil
 }
 
-// ParseWebhook parses a Plaid Identity Verification webhook.
+// ParseWebhook refuses every payload: a Plaid verdict enters through CheckStatus.
+//
+// Plaid authenticates a webhook with a JWT in Plaid-Verification, whose signing
+// key must be fetched from /webhook_verification_key/get by key ID and whose
+// body-hash claim must then be matched against the request. None of that is
+// implemented here, so a genuine Plaid callback is indistinguishable from a
+// forged one and neither is a verdict. Polling is the authenticated path: the
+// answer arrives over a connection Plaid's own certificate authenticates, with
+// the client credentials proving who is asking.
 func (p *Plaid) ParseWebhook(body []byte, headers map[string]string) (*WebhookEvent, error) {
-	var payload struct {
-		WebhookType            string `json:"webhook_type"`
-		WebhookCode            string `json:"webhook_code"`
-		IdentityVerificationID string `json:"identity_verification_id"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("plaid webhook decode: %w", err)
-	}
-
-	var status VerificationStatus
-	switch payload.WebhookCode {
-	case "STEP_COMPLETED":
-		status = StatusPending
-	case "VERIFICATION_COMPLETED":
-		result, err := p.getVerificationResult(payload.IdentityVerificationID)
-		if err != nil {
-			status = StatusError
-		} else {
-			status = result
-		}
-	case "VERIFICATION_EXPIRED":
-		status = StatusExpired
-	default:
-		status = StatusPending
-	}
-
-	return &WebhookEvent{
-		Provider:       ProviderPlaid,
-		VerificationID: payload.IdentityVerificationID,
-		Status:         status,
-		RawPayload:     body,
-		ReceivedAt:     time.Now(),
-	}, nil
-}
-
-func (p *Plaid) getVerificationResult(verificationID string) (VerificationStatus, error) {
-	payload := map[string]string{
-		"client_id":                p.cfg.ClientID,
-		"secret":                   p.cfg.Secret,
-		"identity_verification_id": verificationID,
-	}
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest(http.MethodPost,
-		p.cfg.BaseURL+"/identity_verification/get", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return StatusError, err
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Status string `json:"status"`
-	}
-	json.NewDecoder(resp.Body).Decode(&result)
-	return mapPlaidStatus(result.Status), nil
+	return nil, fmt.Errorf("plaid webhook carries a Plaid-Verification JWT this client cannot check; poll CheckStatus for the verdict: %w", ErrWebhookUnsigned)
 }
 
 func mapPlaidStatus(s string) VerificationStatus {
