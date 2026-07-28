@@ -7,9 +7,6 @@ package provider
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -142,23 +139,14 @@ func (j *Jumio) CheckStatus(ctx context.Context, verificationID string) (*Verifi
 	}, nil
 }
 
-// ParseWebhook parses a Jumio callback/webhook with HMAC-SHA256 signature verification.
-// RED-14: Verifies the Callback-Sig header against the configured APISecret
-// to prevent forged webhook events.
+// ParseWebhook parses a Jumio callback.
+//
+// Jumio signs the raw callback body with the account's API secret and sends the
+// digest in Callback-Sig. The signature is checked before the body is read, and
+// an account holding no secret cannot check anything — both refuse.
 func (j *Jumio) ParseWebhook(body []byte, headers map[string]string) (*WebhookEvent, error) {
-	// RED-14: Verify HMAC signature.
-	sig := headers["Callback-Sig"]
-	if sig == "" {
-		sig = headers["callback-sig"]
-	}
-	if sig == "" {
-		return nil, fmt.Errorf("missing Callback-Sig header")
-	}
-	mac := hmac.New(sha256.New, []byte(j.cfg.APISecret))
-	mac.Write(body)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(sig), []byte(expected)) {
-		return nil, fmt.Errorf("invalid callback signature")
+	if err := verifyHMAC(body, j.cfg.APISecret, header(headers, "Callback-Sig")); err != nil {
+		return nil, err
 	}
 
 	var payload struct {
