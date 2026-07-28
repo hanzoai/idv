@@ -74,7 +74,11 @@ func (p *Intellicheck) CheckStatus(ctx context.Context, sessionID string) (*Veri
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return &VerificationStatusResult{Status: StatusApproved}, nil
+	// The request is well-formed and the response is never read: this returned
+	// "approved" for every outcome, including a 500 and including a document the
+	// provider rejected. A provider that cannot read a verdict must not report one,
+	// so this refuses until the results body is parsed.
+	return nil, fmt.Errorf("intellicheck: the results response is not parsed — no decision can be reported")
 }
 
 // ParseWebhook refuses every payload: no Intellicheck callback signature scheme
