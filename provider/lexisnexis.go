@@ -2,18 +2,14 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
-
 )
 
 const (
-	LexisNexisProdURL = "https://wsonline.seisint.com/WsIdentity/FlexID"
+	LexisNexisProdURL    = "https://wsonline.seisint.com/WsIdentity/FlexID"
 	LexisNexisSandboxURL = "https://wsonline-uat.seisint.com/WsIdentity/FlexID"
 )
 
@@ -35,50 +31,35 @@ func NewLexisNexis(cfg LexisNexisConfig) *LexisNexis {
 	return &LexisNexis{cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-func (p *LexisNexis) Name() string { return "lexisnexis" }
+func (p *LexisNexis) Name() string { return ProviderLexisNexis }
 
-func (p *LexisNexis) InitiateVerification(ctx context.Context, user VerificationRequest) (*VerificationResponse, error) {
-	body := map[string]any{
-		"Options":  map[string]any{"Watchlists.Threshold": 0.84},
-		"User":     map[string]string{"GLBPurpose": "7", "DLPurpose": "3"},
-		"SearchBy": map[string]any{
-			"Name":    map[string]string{"First": user.GivenName, "Last": user.FamilyName},
-			"Address": map[string]string{"StreetAddress1": func() string { if len(user.Street) > 0 { return user.Street[0] }; return "" }(), "City": user.City, "State": user.State, "Zip5": user.PostalCode},
-			"SSN":     user.TaxID,
-			"DOB":     map[string]string{"Year": user.DateOfBirth, "Month": "01", "Day": "01"},
-		},
-	}
-	payload, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, "POST", p.cfg.BaseURL+"?ver_=3.12", bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth(p.cfg.Username, p.cfg.Password)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("lexisnexis: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("lexisnexis: %d %s", resp.StatusCode, string(respBody))
-	}
-
-	return &VerificationResponse{
-		VerificationID: fmt.Sprintf("ln-%d", time.Now().UnixNano()),
-		Provider: "lexisnexis",
-		Status:   StatusApproved, // LexisNexis returns sync result
-		
-	}, nil
+// InitiateVerification refuses.
+//
+// FlexID answers synchronously: the verdict — the comprehensive verification
+// index and any watchlist hits — is IN the response body. This integration builds
+// and sends the query correctly but has never parsed that body, so it cannot know
+// what the provider decided. It previously returned "approved" for any non-4xx
+// response, which reports a decision the provider never gave and would pass a
+// subject FlexID had actually flagged.
+//
+// A provider that cannot read a verdict must not report one, so this refuses
+// rather than inventing a pass. Implementing it means parsing the FlexID response
+// — the comprehensive verification index and the watchlist section — and mapping
+// that to a status; the query that produced it is in this file's history.
+func (p *LexisNexis) InitiateVerification(ctx context.Context, user *VerificationRequest) (*VerificationResponse, error) {
+	return nil, fmt.Errorf("lexisnexis: the FlexID response carries the verdict and is not parsed — no decision can be reported")
 }
 
+// CheckStatus refuses, for the same reason InitiateVerification does: there is no
+// stored or fetched verdict to report. It previously answered "approved"
+// unconditionally, without so much as a request.
 func (p *LexisNexis) CheckStatus(ctx context.Context, sessionID string) (*VerificationStatusResult, error) {
-	return &VerificationStatusResult{Status: StatusApproved}, nil
+	return nil, fmt.Errorf("lexisnexis: no verdict is parsed — status cannot be reported")
 }
 
-func (p *LexisNexis) ParseWebhook(headers map[string]string, body []byte) (*VerificationStatusResult, error) {
-	return nil, fmt.Errorf("lexisnexis: no webhook support (synchronous API)")
+// ParseWebhook refuses every payload: FlexID answers in the response to the
+// query, so nothing legitimate arrives here and there is no signature scheme a
+// caller's claim could be checked against.
+func (p *LexisNexis) ParseWebhook(body []byte, headers map[string]string) (*WebhookEvent, error) {
+	return nil, fmt.Errorf("lexisnexis answers synchronously and sends no webhook: %w", ErrWebhookUnsigned)
 }

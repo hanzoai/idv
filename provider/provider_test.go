@@ -6,9 +6,6 @@ package provider
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,12 +15,9 @@ import (
 	"testing"
 )
 
-// jumioSign computes the HMAC-SHA256 signature for test webhook payloads.
-func jumioSign(body []byte, secret string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	return hex.EncodeToString(mac.Sum(nil))
-}
+// Webhook payloads are signed with hmacHeader from webhook_test.go: the tests
+// below cover decoding and status mapping, which they only reach through the
+// authenticity guard, so they present the signature a real provider would.
 
 // --- Provider registry ---
 
@@ -190,8 +184,7 @@ func TestJumioParseWebhookApproved(t *testing.T) {
 		"identityVerification": {"similarity": "MATCH", "validity": true}
 	}`)
 
-	sig := jumioSign(payload, secret)
-	event, err := j.ParseWebhook(payload, map[string]string{"Callback-Sig": sig})
+	event, err := j.ParseWebhook(payload, jumioSigned(payload, secret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -234,8 +227,7 @@ func TestJumioParseWebhookDeclined(t *testing.T) {
 				"status": "FAILED",
 				"verificationStatus": %q
 			}`, vs))
-			sig := jumioSign(payload, secret)
-			event, err := j.ParseWebhook(payload, map[string]string{"Callback-Sig": sig})
+			event, err := j.ParseWebhook(payload, jumioSigned(payload, secret))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -255,8 +247,7 @@ func TestJumioParseWebhookPending(t *testing.T) {
 		"status": "PENDING",
 		"verificationStatus": "UNKNOWN"
 	}`)
-	sig := jumioSign(payload, secret)
-	event, err := j.ParseWebhook(payload, map[string]string{"Callback-Sig": sig})
+	event, err := j.ParseWebhook(payload, jumioSigned(payload, secret))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -269,51 +260,14 @@ func TestJumioParseWebhookInvalidJSON(t *testing.T) {
 	secret := "json-secret"
 	j := NewJumio(JumioConfig{APISecret: secret})
 	body := []byte(`not-json`)
-	sig := jumioSign(body, secret)
-	_, err := j.ParseWebhook(body, map[string]string{"Callback-Sig": sig})
+	_, err := j.ParseWebhook(body, jumioSigned(body, secret))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
 }
 
-// TestJumioWebhookValidSignature (RED-14) verifies correct HMAC passes.
-func TestJumioWebhookValidSignature(t *testing.T) {
-	secret := "hmac-test-secret"
-	j := NewJumio(JumioConfig{APISecret: secret})
-	payload := []byte(`{"transactionReference":"txn-hmac","status":"DONE","verificationStatus":"APPROVED_VERIFIED"}`)
-	sig := jumioSign(payload, secret)
-
-	event, err := j.ParseWebhook(payload, map[string]string{"Callback-Sig": sig})
-	if err != nil {
-		t.Fatalf("RED-14: valid signature rejected: %v", err)
-	}
-	if event.VerificationID != "txn-hmac" {
-		t.Fatalf("expected txn-hmac, got %q", event.VerificationID)
-	}
-}
-
-// TestJumioWebhookInvalidSignature (RED-14) verifies wrong HMAC is rejected.
-func TestJumioWebhookInvalidSignature(t *testing.T) {
-	j := NewJumio(JumioConfig{APISecret: "real-secret"})
-	payload := []byte(`{"transactionReference":"txn-bad"}`)
-	wrongSig := jumioSign(payload, "wrong-secret")
-
-	_, err := j.ParseWebhook(payload, map[string]string{"Callback-Sig": wrongSig})
-	if err == nil {
-		t.Fatal("RED-14: invalid signature should be rejected")
-	}
-}
-
-// TestJumioWebhookMissingSignature (RED-14) verifies missing header is rejected.
-func TestJumioWebhookMissingSignature(t *testing.T) {
-	j := NewJumio(JumioConfig{APISecret: "some-secret"})
-	payload := []byte(`{"transactionReference":"txn-nosig"}`)
-
-	_, err := j.ParseWebhook(payload, map[string]string{})
-	if err == nil {
-		t.Fatal("RED-14: missing Callback-Sig header should be rejected")
-	}
-}
+// Signature acceptance and rejection live in webhook_test.go, which asserts them
+// over every provider rather than Jumio alone.
 
 // --- Onfido ---
 
@@ -353,8 +307,9 @@ func TestOnfidoCheckStatus(t *testing.T) {
 }
 
 func TestOnfidoParseWebhookClear(t *testing.T) {
-	o := NewOnfido(OnfidoConfig{})
-	payload := `{
+	token := "clear-token"
+	o := NewOnfido(OnfidoConfig{WebhookToken: token})
+	payload := []byte(`{
 		"payload": {
 			"resource_type": "check",
 			"action": "check.completed",
@@ -365,8 +320,8 @@ func TestOnfidoParseWebhookClear(t *testing.T) {
 				"applicant_id": "app-001"
 			}
 		}
-	}`
-	event, err := o.ParseWebhook([]byte(payload), nil)
+	}`)
+	event, err := o.ParseWebhook(payload, onfidoSigned(payload, token))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -379,8 +334,9 @@ func TestOnfidoParseWebhookClear(t *testing.T) {
 }
 
 func TestOnfidoParseWebhookConsider(t *testing.T) {
-	o := NewOnfido(OnfidoConfig{})
-	payload := `{
+	token := "consider-token"
+	o := NewOnfido(OnfidoConfig{WebhookToken: token})
+	payload := []byte(`{
 		"payload": {
 			"resource_type": "check",
 			"action": "check.completed",
@@ -390,8 +346,8 @@ func TestOnfidoParseWebhookConsider(t *testing.T) {
 				"result": "consider"
 			}
 		}
-	}`
-	event, err := o.ParseWebhook([]byte(payload), nil)
+	}`)
+	event, err := o.ParseWebhook(payload, onfidoSigned(payload, token))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -401,8 +357,10 @@ func TestOnfidoParseWebhookConsider(t *testing.T) {
 }
 
 func TestOnfidoParseWebhookInvalidJSON(t *testing.T) {
-	o := NewOnfido(OnfidoConfig{})
-	_, err := o.ParseWebhook([]byte(`{bad`), nil)
+	token := "json-token"
+	o := NewOnfido(OnfidoConfig{WebhookToken: token})
+	body := []byte(`{bad`)
+	_, err := o.ParseWebhook(body, onfidoSigned(body, token))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -424,116 +382,62 @@ func TestPlaidDefaultBaseURL(t *testing.T) {
 	}
 }
 
+// TestPlaidCheckStatus covers polling, which is the only path a Plaid verdict
+// takes: every status Plaid reports has to map through here.
 func TestPlaidCheckStatus(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status": "success",
-			"steps": map[string]string{
-				"verify_sms":                "success",
-				"documentary_verification":  "success",
-				"selfie_check":              "success",
-				"kyc_check":                 "success",
-				"risk_check":                "success",
-			},
+	for _, tc := range []struct {
+		reported string
+		want     VerificationStatus
+	}{
+		{"success", StatusApproved},
+		{"failed", StatusDeclined},
+		{"expired", StatusExpired},
+		{"active", StatusPending},
+	} {
+		t.Run(tc.reported, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": tc.reported,
+					"steps": map[string]string{
+						"verify_sms":               tc.reported,
+						"documentary_verification": tc.reported,
+						"selfie_check":             tc.reported,
+						"kyc_check":                tc.reported,
+						"risk_check":               tc.reported,
+					},
+				})
+			}))
+			defer server.Close()
+
+			p := NewPlaid(PlaidConfig{BaseURL: server.URL, ClientID: "test", Secret: "test"})
+			result, err := p.CheckStatus(context.Background(), "idv-001")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Status != tc.want {
+				t.Fatalf("status = %q, want %q", result.Status, tc.want)
+			}
+			if len(result.Checks) != 4 {
+				t.Fatalf("expected 4 checks, got %d", len(result.Checks))
+			}
 		})
-	}))
-	defer server.Close()
-
-	p := NewPlaid(PlaidConfig{BaseURL: server.URL, ClientID: "test", Secret: "test"})
-	result, err := p.CheckStatus(context.Background(), "idv-001")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Status != StatusApproved {
-		t.Fatalf("expected approved, got %q", result.Status)
-	}
-	if len(result.Checks) != 4 {
-		t.Fatalf("expected 4 checks, got %d", len(result.Checks))
 	}
 }
 
-func TestPlaidParseWebhookStepCompleted(t *testing.T) {
-	p := NewPlaid(PlaidConfig{})
-	payload := `{
-		"webhook_type": "IDENTITY_VERIFICATION",
-		"webhook_code": "STEP_COMPLETED",
-		"identity_verification_id": "idv-step-001"
-	}`
-	event, err := p.ParseWebhook([]byte(payload), nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if event.Status != StatusPending {
-		t.Fatalf("expected pending, got %q", event.Status)
-	}
-}
-
-func TestPlaidParseWebhookExpired(t *testing.T) {
-	p := NewPlaid(PlaidConfig{})
-	payload := `{
-		"webhook_type": "IDENTITY_VERIFICATION",
-		"webhook_code": "VERIFICATION_EXPIRED",
-		"identity_verification_id": "idv-exp-001"
-	}`
-	event, err := p.ParseWebhook([]byte(payload), nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if event.Status != StatusExpired {
-		t.Fatalf("expected expired, got %q", event.Status)
-	}
-}
-
-func TestPlaidParseWebhookCompleted(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"status": "success"})
-	}))
-	defer server.Close()
-
-	p := NewPlaid(PlaidConfig{BaseURL: server.URL, ClientID: "test", Secret: "test"})
-	payload := `{
+// TestPlaidWebhookPollInstead states the policy: Plaid pushes a verdict this
+// client cannot authenticate, so the refusal names the path that works.
+func TestPlaidWebhookPollInstead(t *testing.T) {
+	p := NewPlaid(PlaidConfig{ClientID: "cid", Secret: "sec"})
+	payload := []byte(`{
 		"webhook_type": "IDENTITY_VERIFICATION",
 		"webhook_code": "VERIFICATION_COMPLETED",
 		"identity_verification_id": "idv-done-001"
-	}`
-	event, err := p.ParseWebhook([]byte(payload), nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if event.Status != StatusApproved {
-		t.Fatalf("expected approved, got %q", event.Status)
-	}
-}
-
-func TestPlaidParseWebhookCompletedFailed(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"status": "failed"})
-	}))
-	defer server.Close()
-
-	p := NewPlaid(PlaidConfig{BaseURL: server.URL, ClientID: "test", Secret: "test"})
-	payload := `{
-		"webhook_type": "IDENTITY_VERIFICATION",
-		"webhook_code": "VERIFICATION_COMPLETED",
-		"identity_verification_id": "idv-fail-001"
-	}`
-	event, err := p.ParseWebhook([]byte(payload), nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if event.Status != StatusDeclined {
-		t.Fatalf("expected declined, got %q", event.Status)
-	}
-}
-
-func TestPlaidParseWebhookInvalidJSON(t *testing.T) {
-	p := NewPlaid(PlaidConfig{})
-	_, err := p.ParseWebhook([]byte(`not valid`), nil)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
+	}`)
+	event, err := p.ParseWebhook(payload, map[string]string{"Plaid-Verification": "eyJhbGciOiJFUzI1NiJ9.e30.sig"})
+	refuses(t, event, err)
+	if !strings.Contains(err.Error(), "CheckStatus") {
+		t.Fatalf("refusal should point at the path that works, got: %v", err)
 	}
 }
 
@@ -778,9 +682,9 @@ func TestPlaidInitiateVerification(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"id":             "idv-plaid-001",
-			"shareable_url":  "https://plaid.com/verify/abc",
-			"status":         "active",
+			"id":            "idv-plaid-001",
+			"shareable_url": "https://plaid.com/verify/abc",
+			"status":        "active",
 		})
 	}))
 	defer server.Close()
