@@ -253,14 +253,14 @@ func TestWebhookSignatureVerification(t *testing.T) {
 	})
 	t.Run("forged", func(t *testing.T) {
 		if status, body := post(t, "Callback-Sig", "deadbeef"); status != 400 ||
-			body != "invalid callback signature\n" {
-			t.Errorf("got %d %q, want 400 %q", status, body, "invalid callback signature\n")
+			body != "webhook signature mismatch\n" {
+			t.Errorf("got %d %q, want 400 %q", status, body, "webhook signature mismatch\n")
 		}
 	})
 	t.Run("missing", func(t *testing.T) {
 		if status, body := post(t, "", ""); status != 400 ||
-			body != "missing Callback-Sig header\n" {
-			t.Errorf("got %d %q, want 400 %q", status, body, "missing Callback-Sig header\n")
+			body != "webhook signature absent or unverifiable\n" {
+			t.Errorf("got %d %q, want 400 %q", status, body, "webhook signature absent or unverifiable\n")
 		}
 	})
 }
