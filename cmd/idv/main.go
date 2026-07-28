@@ -11,7 +11,9 @@
 //	             idmerit|berbix
 //	IDV_BASE_URL=…               (optional region override)
 //	IDV_API_TOKEN=…              (required for non-noop)
-//	IDV_WEBHOOK_SECRET=…         (for provider webhooks)
+//	IDV_API_SECRET=…             (Jumio: API auth and callback signature;
+//	                              Plaid: client secret)
+//	IDV_WEBHOOK_SECRET=…         (Onfido: webhook signature)
 //
 // Endpoints:
 //
@@ -94,22 +96,29 @@ func loadProviderFromEnv() (provider.Provider, error) {
 	}
 	baseURL := os.Getenv("IDV_BASE_URL")
 	apiToken := os.Getenv("IDV_API_TOKEN")
+	apiSecret := os.Getenv("IDV_API_SECRET")
 	webhookSecret := os.Getenv("IDV_WEBHOOK_SECRET")
 
 	// Explicit constructors keep the wire path straight — no
 	// registry indirection that hides which provider is wired.
+	//
+	// Each provider gets the secret its webhook signature is keyed on,
+	// because a provider holding no secret refuses every callback: the
+	// guard is only as reachable as the configuration makes it.
 	switch name {
 	case provider.ProviderJumio:
 		return provider.NewJumio(provider.JumioConfig{
-			BaseURL: baseURL, APIToken: apiToken,
+			BaseURL: baseURL, APIToken: apiToken, APISecret: apiSecret,
 		}), nil
 	case provider.ProviderOnfido:
 		return provider.NewOnfido(provider.OnfidoConfig{
 			BaseURL: baseURL, APIToken: apiToken, WebhookToken: webhookSecret,
 		}), nil
 	case provider.ProviderPlaid:
+		// Plaid verdicts are polled, so the client secret is what
+		// authenticates the only path they arrive on.
 		return provider.NewPlaid(provider.PlaidConfig{
-			BaseURL: baseURL, ClientID: apiToken,
+			BaseURL: baseURL, ClientID: apiToken, Secret: apiSecret,
 		}), nil
 	}
 	// Fall back to the dynamic registry (providers self-register via
@@ -117,6 +126,7 @@ func loadProviderFromEnv() (provider.Provider, error) {
 	return provider.GetProvider(name, map[string]string{
 		"base_url":       baseURL,
 		"api_token":      apiToken,
+		"api_secret":     apiSecret,
 		"webhook_secret": webhookSecret,
 	})
 }

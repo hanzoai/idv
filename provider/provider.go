@@ -30,9 +30,13 @@ const (
 
 // Provider names.
 const (
-	ProviderJumio  = "jumio"
-	ProviderOnfido = "onfido"
-	ProviderPlaid  = "plaid"
+	ProviderJumio        = "jumio"
+	ProviderOnfido       = "onfido"
+	ProviderPlaid        = "plaid"
+	ProviderLexisNexis   = "lexisnexis"
+	ProviderIntellicheck = "intellicheck"
+	ProviderIDMerit      = "idmerit"
+	ProviderBerbix       = "berbix"
 )
 
 // VerificationRequest initiates an identity verification check.
@@ -110,6 +114,19 @@ type Provider interface {
 	CheckStatus(ctx context.Context, verificationID string) (*VerificationStatusResult, error)
 	ParseWebhook(body []byte, headers map[string]string) (*WebhookEvent, error)
 }
+
+// The implementations. Stating conformance here makes ParseWebhook's contract —
+// including the authenticity requirement webhook_test.go asserts over this same
+// set — a compile-time obligation rather than a convention.
+var (
+	_ Provider = (*Jumio)(nil)
+	_ Provider = (*Onfido)(nil)
+	_ Provider = (*Plaid)(nil)
+	_ Provider = (*LexisNexis)(nil)
+	_ Provider = (*Intellicheck)(nil)
+	_ Provider = (*IDMerit)(nil)
+	_ Provider = (*Berbix)(nil)
+)
 
 // providerFactory creates a provider from a config map.
 type providerFactory func(config map[string]string) (Provider, error)

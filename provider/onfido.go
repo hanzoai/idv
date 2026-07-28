@@ -214,7 +214,16 @@ func (o *Onfido) CheckStatus(ctx context.Context, verificationID string) (*Verif
 }
 
 // ParseWebhook parses an Onfido webhook notification.
+//
+// Onfido signs the raw body with the token registered alongside the webhook
+// endpoint and sends the digest in X-SHA2-Signature. That signature is what
+// makes the payload Onfido's verdict rather than a caller's claim, so it is
+// checked before the body is read at all.
 func (o *Onfido) ParseWebhook(body []byte, headers map[string]string) (*WebhookEvent, error) {
+	if err := verifyHMAC(body, o.cfg.WebhookToken, header(headers, "X-SHA2-Signature")); err != nil {
+		return nil, err
+	}
+
 	var payload struct {
 		Payload struct {
 			ResourceType string `json:"resource_type"`
