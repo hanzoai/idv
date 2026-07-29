@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/zap-proto/fiber/v3 v3.2.1
-	github.com/zap-proto/zip v1.10.0
+	github.com/zap-proto/zip v1.18.1
 )
 
 require (
@@ -26,7 +26,7 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.70.0 // indirect
 	github.com/zap-proto/go v1.3.0 // indirect
-	github.com/zap-proto/http v0.3.0 // indirect
+	github.com/zap-proto/http v0.3.1 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
