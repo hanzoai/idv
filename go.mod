@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/zap-proto/fiber/v3 v3.2.1
-	github.com/zap-proto/zip v1.34.1
+	github.com/zap-proto/zip v1.34.2
 )
 
 require (
