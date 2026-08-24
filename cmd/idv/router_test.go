@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hanzoai/idv/provider"
+	"hanzo.ai/idv/provider"
 )
 
 // fakeProvider answers deterministically so route tests pin the wire

@@ -173,7 +173,7 @@ func newID() string {
 
 // Providers are registered by importing their sub-packages:
 //
-//   import _ "github.com/hanzoai/idv/provider/jumio"
-//   import _ "github.com/hanzoai/idv/provider/onfido"
+//   import _ "hanzo.ai/idv/provider/jumio"
+//   import _ "hanzo.ai/idv/provider/onfido"
 //
 // Each sub-package calls RegisterFactory in its init().
