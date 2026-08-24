@@ -1,4 +1,4 @@
-module github.com/hanzoai/idv
+module hanzo.ai/idv
 
 go 1.26.5
 

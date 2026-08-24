@@ -42,7 +42,7 @@ import (
 	"github.com/zap-proto/fiber/v3"
 	"github.com/zap-proto/zip"
 
-	"github.com/hanzoai/idv/provider"
+	"hanzo.ai/idv/provider"
 )
 
 // sessionsSubtree is the prefix that separates the collection route

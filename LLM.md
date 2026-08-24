@@ -1,6 +1,6 @@
 # hanzoai/idv — Pluggable Identity Verification
 
-Go module: `github.com/hanzoai/idv`
+Go module: `hanzo.ai/idv`
 
 7 IDV providers in a single package. Uniform interface — swap providers without changing caller code.
 
@@ -32,7 +32,7 @@ either means parsing its response and mapping it to a status — nothing else.
 ## Usage
 
 ```go
-import "github.com/hanzoai/idv/provider"
+import "hanzo.ai/idv/provider"
 
 // Credentials come from KMS. The API token bills per check and the webhook token
 // is what separates a provider's verdict from a stranger's claim, so neither is a
