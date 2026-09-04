@@ -24,14 +24,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o /build/idv \
     ./cmd/idv
 
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata curl \
-    && addgroup -S hanzo && adduser -S hanzo -G hanzo
-WORKDIR /app
+# One directory in an empty image: the static binary and the files it reads;
+# nothing else is present to run, so nothing else can be run.
+FROM alpine:3.22 AS root
+RUN apk add --no-cache ca-certificates tzdata
+
+FROM scratch
+COPY --from=root /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=root /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /build/idv /app/idv
-USER hanzo
+USER 65532:65532
 EXPOSE 8081
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8081/healthz || exit 1
 ENTRYPOINT ["/app/idv"]
 CMD ["-http", ":8081"]
