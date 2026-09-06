@@ -26,6 +26,13 @@ jobs:
       - id: meta
         run: echo "tag=sha-$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
 
+      # The lab runs amd64 (evo) and arm64 (spark), so the image has to carry
+      # both or it deploys on half the fleet. This Dockerfile's builder stage is
+      # a plain `FROM golang:...-alpine` — it is not pinned to $BUILDPLATFORM and
+      # does not read TARGETARCH — so the arm64 leg compiles under emulation on
+      # this amd64 pool. binfmt is what lets that leg run at all.
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
         with: { driver: docker-container, driver-opts: network=host }
 
@@ -43,7 +50,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           provenance: false
           tags: ghcr.io/hanzoai/idv:${{ steps.meta.outputs.tag }}
