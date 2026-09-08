@@ -19,7 +19,7 @@ on:
 # reverted within minutes even where kubectl exists.
 jobs:
   build:
-    runs-on: [hanzo-build-linux-amd64]
+    runs-on: [linux-amd64]
     steps:
       - uses: actions/checkout@v4
 
