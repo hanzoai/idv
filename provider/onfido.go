@@ -48,7 +48,7 @@ func (o *Onfido) Name() string { return ProviderOnfido }
 // InitiateVerification creates an Onfido applicant and starts a check workflow.
 func (o *Onfido) InitiateVerification(ctx context.Context, req *VerificationRequest) (*VerificationResponse, error) {
 	// Step 1: Create applicant
-	applicant := map[string]interface{}{
+	applicant := map[string]any{
 		"first_name": req.GivenName,
 		"last_name":  req.FamilyName,
 		"email":      req.Email,
@@ -83,7 +83,7 @@ func (o *Onfido) InitiateVerification(ctx context.Context, req *VerificationRequ
 	}, nil
 }
 
-func (o *Onfido) createApplicant(ctx context.Context, applicant map[string]interface{}) (string, error) {
+func (o *Onfido) createApplicant(ctx context.Context, applicant map[string]any) (string, error) {
 	body, _ := json.Marshal(applicant)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		o.cfg.BaseURL+"/applicants", bytes.NewReader(body))
@@ -141,7 +141,7 @@ func (o *Onfido) createCheck(ctx context.Context, applicantID, workflow string) 
 		reportNames = append(reportNames, "watchlist_enhanced")
 	}
 
-	checkReq := map[string]interface{}{
+	checkReq := map[string]any{
 		"applicant_id": applicantID,
 		"report_names": reportNames,
 	}

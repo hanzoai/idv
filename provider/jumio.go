@@ -47,7 +47,7 @@ func (j *Jumio) Name() string { return ProviderJumio }
 
 // InitiateVerification creates a new Jumio verification transaction via API v4.
 func (j *Jumio) InitiateVerification(ctx context.Context, req *VerificationRequest) (*VerificationResponse, error) {
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"customerInternalReference": req.ApplicationID,
 		"userReference":             req.Email,
 		"workflowId":                200, // ID + Identity Verification
@@ -118,9 +118,9 @@ func (j *Jumio) CheckStatus(ctx context.Context, verificationID string) (*Verifi
 	}
 
 	var result struct {
-		Status             string                 `json:"status"`
-		VerificationStatus string                 `json:"verificationStatus"`
-		Decision           map[string]interface{} `json:"decision,omitempty"`
+		Status             string         `json:"status"`
+		VerificationStatus string         `json:"verificationStatus"`
+		Decision           map[string]any `json:"decision,omitempty"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("jumio status decode failed: %w", err)
@@ -150,12 +150,12 @@ func (j *Jumio) ParseWebhook(body []byte, headers map[string]string) (*WebhookEv
 	}
 
 	var payload struct {
-		TransactionReference      string                 `json:"transactionReference"`
-		CustomerInternalReference string                 `json:"customerInternalReference"`
-		Status                    string                 `json:"status"`
-		VerificationStatus        string                 `json:"verificationStatus"`
-		RejectReason              map[string]interface{} `json:"rejectReason,omitempty"`
-		IdentityVerification      map[string]interface{} `json:"identityVerification,omitempty"`
+		TransactionReference      string         `json:"transactionReference"`
+		CustomerInternalReference string         `json:"customerInternalReference"`
+		Status                    string         `json:"status"`
+		VerificationStatus        string         `json:"verificationStatus"`
+		RejectReason              map[string]any `json:"rejectReason,omitempty"`
+		IdentityVerification      map[string]any `json:"identityVerification,omitempty"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("jumio webhook decode: %w", err)

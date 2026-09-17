@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -74,13 +75,7 @@ func TestListRegistered(t *testing.T) {
 	sort.Strings(names)
 	expected := []string{"jumio", "onfido", "plaid"}
 	for _, exp := range expected {
-		found := false
-		for _, n := range names {
-			if n == exp {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(names, exp)
 		if !found {
 			t.Fatalf("expected %q in registered list", exp)
 		}
@@ -397,7 +392,7 @@ func TestPlaidCheckStatus(t *testing.T) {
 		t.Run(tc.reported, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				json.NewEncoder(w).Encode(map[string]any{
 					"status": tc.reported,
 					"steps": map[string]string{
 						"verify_sms":               tc.reported,
@@ -681,7 +676,7 @@ func TestOnfidoInitiateVerification(t *testing.T) {
 func TestPlaidInitiateVerification(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"id":            "idv-plaid-001",
 			"shareable_url": "https://plaid.com/verify/abc",
 			"status":        "active",

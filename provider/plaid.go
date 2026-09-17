@@ -48,13 +48,13 @@ func (p *Plaid) Name() string { return ProviderPlaid }
 
 // InitiateVerification creates a Plaid Identity Verification session.
 func (p *Plaid) InitiateVerification(ctx context.Context, req *VerificationRequest) (*VerificationResponse, error) {
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"client_id":    p.cfg.ClientID,
 		"secret":       p.cfg.Secret,
 		"is_shareable": true,
 		"template_id":  req.Workflow,
 		"gave_consent": true,
-		"user": map[string]interface{}{
+		"user": map[string]any{
 			"client_user_id": req.ApplicationID,
 			"email_address":  req.Email,
 			"name": map[string]string{
