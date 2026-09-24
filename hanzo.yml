@@ -1,0 +1,9 @@
+# Hanzo CI/CD for hanzoai/idv: .github/workflows/cicd.yml imports hanzoai/ci,
+# which reads this file. The build door builds each image, one BuildKit Job
+# per platform.
+images:
+  - name: idv
+    context: .
+    dockerfile: Dockerfile
+    repo: ghcr.io/hanzoai/idv
+    platforms: [linux/amd64, linux/arm64]
